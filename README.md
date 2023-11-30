@@ -1,3 +1,24 @@
+# Fork info
+This fork exist since I didn't get the upstream to work with emqtt 1.8.x
+I think it is related to the change in the msg handler functions. I.e. 
+from
+```
+-type(msg_handler() :: #{puback := fun((_) -> any()) | mfas(),
+                         publish := fun((emqx_types:message()) -> any()) | mfas(),
+                         disconnected := fun(({reason_code(), _Properties :: term()}) -> any()) | mfas()
+                        })
+```
+[to](https://github.com/emqx/emqtt/blob/master/src/emqtt.erl#L134C1-L134C83)
+```
+%% Message handler is a set of callbacks defined to handle MQTT messages
+%% as well as the disconnect event.
+-type(msg_handler() :: #{publish := fun((emqx_types:message()) -> any()) | mfas(),
+                         connected := fun((_Properties :: term()) -> any()) | mfas(),
+                         disconnected := fun(({reason_code(), _Properties :: term()}) -> any()) | mfas()
+                        }).
+```
+
+__Important__: The emqtt library, and subsequently this wrapper, does not work on Erlang 26 yet(?). See this [issue](https://github.com/emqx/emqtt/issues/203)
 # ExMQTT
 
 An Elixir wrapper around the Erlang [`emqtt`](https://github.com/emqx/emqtt) library.
