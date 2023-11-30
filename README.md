@@ -1,24 +1,3 @@
-# Fork info
-This fork exist since I didn't get the upstream to work with emqtt 1.8.x
-I think it is related to the change in the msg handler functions. I.e. 
-from
-```
--type(msg_handler() :: #{puback := fun((_) -> any()) | mfas(),
-                         publish := fun((emqx_types:message()) -> any()) | mfas(),
-                         disconnected := fun(({reason_code(), _Properties :: term()}) -> any()) | mfas()
-                        })
-```
-[to](https://github.com/emqx/emqtt/blob/master/src/emqtt.erl#L134C1-L134C83)
-```
-%% Message handler is a set of callbacks defined to handle MQTT messages
-%% as well as the disconnect event.
--type(msg_handler() :: #{publish := fun((emqx_types:message()) -> any()) | mfas(),
-                         connected := fun((_Properties :: term()) -> any()) | mfas(),
-                         disconnected := fun(({reason_code(), _Properties :: term()}) -> any()) | mfas()
-                        }).
-```
-
-__Important__: The emqtt library, and subsequently this wrapper, does not work on Erlang 26 yet(?). See this [issue](https://github.com/emqx/emqtt/issues/203)
 # ExMQTT
 
 An Elixir wrapper around the Erlang [`emqtt`](https://github.com/emqx/emqtt) library.
@@ -62,11 +41,11 @@ hex but not consistently and reliably).
 
 ## Development
 
-By default [`emqtt`](https://github.com/emqx/emqtt) compiles `Quic` library, if it is not necessary is 
-possible set the env variable `BUILD_WITHOUT_QUIC` to `1`:
+By default [`emqtt`](https://github.com/emqx/emqtt) compiles `Quic` library, if it is not necessary it is
+possible to set the env variable `BUILD_WITHOUT_QUIC` to `1`:
 
 ```
-BUILD_WITHOUT_QUIC=1 iex -S mix 
+BUILD_WITHOUT_QUIC=1 iex -S mix
 ```
 
 ## Usage
@@ -78,7 +57,7 @@ You can use the `GenServer` or the `Supervisor` like so:
 ```elixir
 ExMQTT.start_link(opts)
 ```
-or 
+or
 
 ```elixir
 ExMQTT.Supervisor.start_link(opts)
@@ -168,7 +147,7 @@ ExMQTT.unsubscribe_sync(topic)
     certfile: '/etc/mqtt/certs/client.crt'
   ],
   start_when: {{MyProject.Network, :connected?, []}, 2000},
-  message_handler: {MyApp.MQTTMessageHandler, []},
+  publish_handler: {MyApp.MQTTMessageHandler, []}
   subscriptions: [
     {"foo/#", 1},
     {"baz/+", 0}
@@ -195,7 +174,7 @@ the same example with `certifi`:
     certfile: '/etc/mqtt/certs/client.crt'
   ],
   start_when: {{MyProject.Network, :connected?, []}, 2000},
-  message_handler: {MyApp.MQTTMessageHandler, []},
+  publish_handler: {MyApp.MQTTMessageHandler, []}
   subscriptions: [
     {"foo/#", 1},
     {"baz/+", 0}
@@ -207,23 +186,12 @@ the same example with `certifi`:
 
 ```elixir
 defmodule MyApp.MQTTMessageHandler do
-  @behaviour ExMQTT.MessageHandler
+  @behaviour ExMQTT.PublishHandler
 
   @impl true
-  def handle_message(["foo", "bar"], message, _extra) do
-    # Matches on "foo/bar"
+  def handle_publish(message, _extra) do
+    # Receive all subscribed to topics
   end
 
-  def handle_message(["foo", "bar" | _rest], message, _extra) do
-    # Matches on "foo/bar/#"
-  end
-
-  def handle_message(["baz", buzz], message, _extra) do
-    # Matches on "baz/+"
-  end
-
-  def handle_message(topic, message, _extra) do
-    # Catch-all
-  end
 end
 ```
