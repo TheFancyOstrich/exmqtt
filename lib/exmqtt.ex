@@ -18,7 +18,8 @@ defmodule ExMQTT do
       :opts,
       :protocol_version,
       :reconnect,
-      :subscriptions
+      :subscriptions,
+      :conn_name
     ]
   end
 
@@ -61,6 +62,7 @@ defmodule ExMQTT do
 
   @opt_keys [
     :name,
+    :conn_name,
     :owner,
     :connect_handler,
     :publish_handler,
@@ -102,7 +104,7 @@ defmodule ExMQTT do
   """
   @spec start_link(opts) :: {:ok, pid}
   def start_link(opts) do
-    name = Keyword.get(opts, :name, __MODULE__)
+    name = Keyword.get(opts, :conn_name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
@@ -202,7 +204,8 @@ defmodule ExMQTT do
       reconnect: {delay, max_delay},
       subscriptions: subscriptions,
       username: opts[:username],
-      opts: [{:msg_handler, handler_functions} | opts]
+      opts: [{:msg_handler, handler_functions} | opts],
+      conn_name: Keyword.get(opts, :conn_name, "ExMQTT")
     }
 
     {:ok, state, {:continue, {:start_when, start_when}}}
@@ -236,7 +239,7 @@ defmodule ExMQTT do
       {:error, _reason} ->
         %{reconnect: {initial_delay, max_delay}} = state
         delay = retry_delay(initial_delay, max_delay, attempt)
-        Logger.debug("[ExMQTT] Unable to connect, retrying in #{delay} ms")
+        Logger.debug("[#{state.conn_name}] Unable to connect, retrying in #{delay} ms")
         :timer.sleep(delay)
         {:noreply, state, {:continue, {:connect, attempt + 1}}}
     end
@@ -295,16 +298,16 @@ defmodule ExMQTT do
   @impl GenServer
 
   def handle_info({:disconnected, :shutdown, :ssl_closed}, state) do
-    Logger.warning("[ExMQTT] Disconnected - shutdown, :ssl_closed")
+    Logger.warning("[#{state.conn_name}] Disconnected - shutdown, :ssl_closed")
     {:noreply, state}
   end
 
   def handle_info({:reconnect, attempt}, %{reconnect: {initial_delay, max_delay}} = state) do
-    Logger.debug("[ExMQTT] Trying to reconnect")
+    Logger.debug("[#{state.conn_name}] Trying to reconnect")
 
     case connect(state) do
       {:ok, state} ->
-        Logger.debug("[ExMQTT] Connected #{inspect(state.conn_pid)}")
+        Logger.debug("[#{state.conn_name}] Connected #{inspect(state.conn_pid)}")
         {:noreply, state}
 
       {:error, _reason} ->
@@ -315,16 +318,16 @@ defmodule ExMQTT do
   end
 
   def handle_info(msg, state) do
-    Logger.warning("[ExMQTT] Unhandled message #{inspect(msg)}")
+    Logger.warning("[#{state.conn_name}] Unhandled message #{inspect(msg)}")
     {:noreply, state}
   end
 
   ## Disconnect
 
   @impl ExMQTT.DisconnectHandler
-  def handle_disconnect({reason_code, properties}, _arg) do
+  def handle_disconnect({reason_code, properties}, state) do
     Logger.warning(
-      "[ExMQTT] Disconnect received: reason #{reason_code}, properties: #{inspect(properties)}"
+      "[#{state.conn_name}] Disconnect received: reason #{reason_code}, properties: #{inspect(properties)}"
     )
 
     :ok
@@ -333,16 +336,16 @@ defmodule ExMQTT do
   ## Connect
 
   @impl ExMQTT.ConnectHandler
-  def handle_connect(properties, _arg) do
-    Logger.debug("[ExMQTT] Connect handled #{inspect(properties)}")
+  def handle_connect(properties, state) do
+    Logger.debug("[#{state.conn_name}] Connect handled #{inspect(properties)}")
     :ok
   end
 
   ## Publish
 
   @impl ExMQTT.PublishHandler
-  def handle_publish(message, _arg) do
-    Logger.debug("[ExMQTT] Publish: #{inspect(message)}")
+  def handle_publish(message, state) do
+    Logger.debug("[#{state.conn_name}] Publish: #{inspect(message)}")
     :ok
   end
 
@@ -351,7 +354,7 @@ defmodule ExMQTT do
   # ----------------------------------------------------------------------------
 
   defp connect(%State{} = state) do
-    Logger.debug("[ExMQTT] Connecting to #{state.opts[:host]}:#{state.opts[:port]}")
+    Logger.debug("[#{state.conn_name}] Connecting to #{state.opts[:host]}:#{state.opts[:port]}")
 
     opts = map_opts(state.opts)
 
@@ -359,7 +362,7 @@ defmodule ExMQTT do
       {:ok, conn_pid} when is_pid(conn_pid) <- :emqtt.start_link(opts),
       {:ok, _props} <- :emqtt.connect(conn_pid)
     ) do
-      Logger.debug("[ExMQTT] Connected #{inspect(conn_pid)}")
+      Logger.debug("[#{state.conn_name}] Connected #{inspect(conn_pid)}")
       {:ok, %State{state | conn_pid: conn_pid}}
     else
       {:error, reason} ->
@@ -387,12 +390,12 @@ defmodule ExMQTT do
   defp sub(%State{} = state, topic, qos) do
     case :emqtt.subscribe(state.conn_pid, {topic, qos}) do
       {:ok, _props, [reason_code]} when reason_code in [0x00, 0x01, 0x02] ->
-        Logger.debug("[ExMQTT] Subscribed to #{topic} @ QoS #{qos}")
+        Logger.debug("[#{state.conn_name}] Subscribed to #{topic} @ QoS #{qos}")
         :ok
 
       {:ok, _props, reason_codes} ->
         Logger.error(
-          "[ExMQTT] Subscription to #{topic} @ QoS #{qos} failed: #{inspect(reason_codes)}"
+          "[#{state.conn_name}] Subscription to #{topic} @ QoS #{qos} failed: #{inspect(reason_codes)}"
         )
 
         :error
@@ -402,11 +405,14 @@ defmodule ExMQTT do
   defp unsub(%State{} = state, topic) do
     case :emqtt.unsubscribe(state.conn_pid, topic) do
       {:ok, _props, [0x00]} ->
-        Logger.debug("[ExMQTT] Unsubscribed from #{topic}")
+        Logger.debug("[#{state.conn_name}] Unsubscribed from #{topic}")
         :ok
 
       {:ok, _props, reason_codes} ->
-        Logger.error("[ExMQTT] Unsubscribe from #{topic} failed #{inspect(reason_codes)}")
+        Logger.error(
+          "[#{state.conn_name}] Unsubscribe from #{topic} failed #{inspect(reason_codes)}"
+        )
+
         :error
     end
   end
